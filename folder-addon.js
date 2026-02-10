@@ -100,6 +100,10 @@ window.openFolder = async function(folderId, folderName) {
     currentFolderId = folderId;
     folderPath.push({ id: folderId, name: folderName });
     
+    // Update URL
+    const pathStr = folderPath.map(f => encodeURIComponent(f.name)).join('/');
+    history.pushState({ folderId, folderPath }, '', `/p/${pathStr}`);
+    
     // Show loading
     document.getElementById('fileList').innerHTML = '<div class="loading"><div class="spinner"></div><p>Loading folder...</p></div>';
     
@@ -118,12 +122,15 @@ window.goBack = function() {
         // Back to root
         currentFolderId = null;
         folderPath = [];
+        history.pushState({}, '', '/');
         fetch('/api/files').then(r => r.json()).then(files => initFiles(files));
     } else {
         // Back to parent folder
         folderPath.pop();
         const parent = folderPath[folderPath.length - 1];
         currentFolderId = parent.id;
+        const pathStr = folderPath.map(f => encodeURIComponent(f.name)).join('/');
+        history.pushState({ folderId: parent.id, folderPath }, '', `/p/${pathStr}`);
         fetch(`/api/files?folder=${parent.id}`).then(r => r.json()).then(files => initFiles(files));
     }
 };
