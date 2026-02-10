@@ -114,17 +114,17 @@ window.openFolder = async function(folderId, folderName) {
 
 // Go back to parent
 window.goBack = function() {
-    if (folderPath.length === 0) return;
-    
-    folderPath.pop();
-    if (folderPath.length === 0) {
+    if (folderPath.length <= 1) {
         // Back to root
         currentFolderId = null;
+        folderPath = [];
         fetch('/api/files').then(r => r.json()).then(files => initFiles(files));
     } else {
         // Back to parent folder
+        folderPath.pop();
         const parent = folderPath[folderPath.length - 1];
-        openFolder(parent.id, parent.name);
+        currentFolderId = parent.id;
+        fetch(`/api/files?folder=${parent.id}`).then(r => r.json()).then(files => initFiles(files));
     }
 };
 
