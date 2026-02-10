@@ -2651,16 +2651,19 @@ footer {
 
 
 /* Footer */
+/* Footer */
 footer {
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-  color: #fff;
+  background: #000;
+  color: #666;
   padding: 20px 0;
   margin-top: 60px;
   text-align: center;
-  border-top: 2px solid rgba(255,255,255,0.1);
-  font-size: 14px;
+  border-top: 1px solid #1a1a1a;
+  font-size: 13px;
 }
+
 
 footer .container {
   opacity: 0.8;
 }
+
