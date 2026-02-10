@@ -652,7 +652,7 @@ async function openInfo(id, name, size, isRetry = false) {
     document.getElementById('modalContent').innerHTML = `<div class="loading"><div class="spinner"></div><p>Analyzing...${retryText}</p></div>`;
 
     try {
-        const res = await fetch('duduinfo.php?id=' + id);
+        const res = await fetch('/api/info?id=' + id);
         const data = await res.json();
 
         if (data.error) throw new Error(data.error);
@@ -1847,4 +1847,5 @@ document.addEventListener('keydown', e => {
     if (e.key === '/' && !e.ctrlKey && document.activeElement.tagName !== 'INPUT') { e.preventDefault(); document.getElementById('searchInput').focus(); }
     if (e.key === 'Escape') closeModal();
 });
+
 
