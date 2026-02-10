@@ -136,7 +136,6 @@ window.goBack = function() {
 };
 
 // Override renderFiles to add folder support
-const originalRenderFiles = window.renderFiles;
 window.renderFiles = function() {
     const start = (currentPage - 1) * perPage;
     const pf = filteredFiles.slice(start, start + perPage);
@@ -152,8 +151,7 @@ window.renderFiles = function() {
     
     fileList.innerHTML = pf.map(f => {
         if (f.isFolder) {
-            // Folder item
-            const safeName = esc(f.name).replace(/'/g, "\\'");
+            const safeName = (f.name || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g, "\\'");
             return `
             <article class="file-item" onclick="openFolder('${f.id}','${safeName}')">
                 <div class="file-row">
@@ -163,7 +161,7 @@ window.renderFiles = function() {
                         </svg>
                     </div>
                     <div class="file-content">
-                        <div class="file-name">${esc(f.name)}</div>
+                        <div class="file-name">${(f.name || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}</div>
                         <div class="file-info">
                             <span class="file-badge">Folder</span>
                         </div>
@@ -179,11 +177,9 @@ window.renderFiles = function() {
             </article>`;
         }
         
-        // Regular file rendering (use original code)
         const ftype = getFileType(f.name);
         const isVideo = ftype === 'video';
-        const showInfo = isVideo || ftype === 'audio';
-        const safeName = esc(f.name).replace(/'/g, "\\'");
+        const safeName = (f.name || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g, "\\'");
         const parsed = parseFilename(f.name);
         
         return `
@@ -195,7 +191,7 @@ window.renderFiles = function() {
                     </svg>
                 </div>
                 <div class="file-content">
-                    <div class="file-name" title="${esc(f.name)}">${esc(f.name)}</div>
+                    <div class="file-name" title="${(f.name || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}">${(f.name || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}</div>
                     <div class="file-info">
                         ${parsed.resolution ? `<span class="file-badge res">${parsed.resolution}</span>` : ''}
                         ${parsed.source ? `<span class="file-badge">${parsed.source}</span>` : ''}
