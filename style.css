@@ -2380,5 +2380,82 @@ footer {
     /* View toggle responsive */
     .filter-row { gap: 10px; }
     .advanced-filters { padding: 8px 10px; }
+
+    .search-kbd { display: none; }
 }
 
+/* ========== Ctrl+K Keyboard Shortcut Badge ========== */
+.search-kbd {
+    position: absolute;
+    right: 40px;
+    top: 50%;
+    transform: translateY(-50%);
+    margin-right: 0;
+    pointer-events: none;
+    transition: opacity 0.15s;
+}
+.search-field:focus-within .search-kbd { opacity: 0; }
+
+/* ========== Breadcrumb Navigation ========== */
+.breadcrumbs {
+    display: none;
+    align-items: center;
+    gap: 4px;
+    padding: 10px 0;
+    margin-bottom: 8px;
+    overflow-x: auto;
+    white-space: nowrap;
+    scrollbar-width: none;
+}
+.breadcrumbs::-webkit-scrollbar { display: none; }
+.breadcrumbs.visible { display: flex; }
+
+.breadcrumb-item {
+    background: none;
+    border: none;
+    color: var(--gray-400);
+    font-size: 13px;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-family: inherit;
+}
+.breadcrumb-item:hover { background: var(--gray-800); color: var(--white); }
+.breadcrumb-item.root svg { width: 14px; height: 14px; }
+.breadcrumb-item.current {
+    color: var(--white);
+    font-weight: 500;
+    cursor: default;
+}
+.breadcrumb-item.current:hover { background: none; }
+
+.breadcrumb-sep {
+    color: var(--gray-700);
+    font-size: 13px;
+    user-select: none;
+}
+
+/* ========== Folder Icon & Card Styles ========== */
+.file-icon.folder { background: rgba(251, 191, 36, 0.1); }
+.file-icon.folder svg { stroke: #fbbf24; }
+
+.folder-card {
+    cursor: pointer;
+    border: 1px solid rgba(251, 191, 36, 0.15);
+}
+.folder-card:hover {
+    border-color: rgba(251, 191, 36, 0.3);
+    background: rgba(251, 191, 36, 0.03);
+}
+.folder-card .card-ext {
+    background: rgba(251, 191, 36, 0.15);
+    color: #fbbf24;
+}
+
+/* ========== Archive Icon ========== */
+.file-icon.archive { background: rgba(168, 85, 247, 0.1); }
+.file-icon.archive svg { stroke: #a855f7; }
