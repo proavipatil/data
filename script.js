@@ -23,12 +23,41 @@ let subtitlesCache = {};
 let availableYears = [];
 let searchSuggestions = [];
 
+// Folder navigation state
+let currentFolderId = null;
+let folderPath = [];
+
 // File types
 const fileTypes = {
     video: ['mp4', 'mkv', 'avi', 'mov', 'webm', 'flv', 'wmv', 'm4v', 'ts'],
     audio: ['mp3', 'flac', 'wav', 'm4a', 'ogg', 'aac', 'wma', 'opus'],
     archive: ['zip', 'rar', '7z', 'tar', 'gz', 'bz2', 'iso'],
 };
+
+// ISO 639-1 language code to full name map
+const langNames = {
+    'en': 'English', 'hi': 'Hindi', 'es': 'Spanish', 'fr': 'French', 'de': 'German',
+    'it': 'Italian', 'pt': 'Portuguese', 'ru': 'Russian', 'ja': 'Japanese', 'ko': 'Korean',
+    'zh': 'Chinese', 'ar': 'Arabic', 'tr': 'Turkish', 'pl': 'Polish', 'nl': 'Dutch',
+    'sv': 'Swedish', 'da': 'Danish', 'no': 'Norwegian', 'fi': 'Finnish', 'el': 'Greek',
+    'cs': 'Czech', 'ro': 'Romanian', 'hu': 'Hungarian', 'th': 'Thai', 'id': 'Indonesian',
+    'ms': 'Malay', 'vi': 'Vietnamese', 'uk': 'Ukrainian', 'bg': 'Bulgarian', 'hr': 'Croatian',
+    'sr': 'Serbian', 'sk': 'Slovak', 'sl': 'Slovenian', 'lt': 'Lithuanian', 'lv': 'Latvian',
+    'et': 'Estonian', 'he': 'Hebrew', 'fa': 'Persian', 'bn': 'Bengali', 'ta': 'Tamil',
+    'te': 'Telugu', 'ml': 'Malayalam', 'kn': 'Kannada', 'mr': 'Marathi', 'gu': 'Gujarati',
+    'pa': 'Punjabi', 'ur': 'Urdu', 'ne': 'Nepali', 'si': 'Sinhala', 'my': 'Burmese',
+    'km': 'Khmer', 'lo': 'Lao', 'ka': 'Georgian', 'am': 'Amharic', 'sw': 'Swahili',
+    'af': 'Afrikaans', 'sq': 'Albanian', 'eu': 'Basque', 'ca': 'Catalan', 'gl': 'Galician',
+    'is': 'Icelandic', 'mk': 'Macedonian', 'mt': 'Maltese', 'cy': 'Welsh', 'ga': 'Irish',
+    'la': 'Latin', 'und': 'Undefined'
+};
+
+// Resolve language code to full name
+function getLangName(code) {
+    if (!code) return null;
+    const lower = code.toLowerCase().trim();
+    return langNames[lower] || code;
+}
 
 // ========== FILENAME PARSER ==========
 // Parse scene-style filename into structured data
@@ -225,10 +254,11 @@ function extractYear(filename) {
 
 // Initialize with files from PHP
 function initFiles(files) {
-    // Add year to each file
+    // Add year and isFolder to each file
     window.allFiles = files.map(f => ({
         ...f,
-        year: extractYear(f.name)
+        year: extractYear(f.name),
+        isFolder: f.isFolder || f.mimeType === 'application/vnd.google-apps.folder' || false
     }));
 
     // Extract unique years for filter
@@ -248,6 +278,9 @@ function initFiles(files) {
 
     // Apply saved view mode
     applyViewMode();
+
+    // Update breadcrumbs
+    renderBreadcrumbs();
 
     filteredFiles = window.allFiles;
     document.getElementById('totalCount').textContent = files.length;
@@ -434,10 +467,13 @@ function smartSearch(filename, query) {
 
 function applyFilters() {
     filteredFiles = window.allFiles.filter(f => {
-        const t = getFileType(f.name);
-
-        // File type filter
-        if (currentFilter !== 'all' && t !== currentFilter) return false;
+        // Folder filter
+        if (currentFilter === 'folder' && !f.isFolder) return false;
+        if (currentFilter !== 'all' && currentFilter !== 'folder') {
+            if (f.isFolder) return false; // Hide folders when filtering by specific type
+            const t = getFileType(f.name);
+            if (t !== currentFilter) return false;
+        }
 
         // Year filter
         if (currentYear !== 'all' && f.year !== currentYear) return false;
@@ -448,25 +484,44 @@ function applyFilters() {
         return true;
     });
 
-    // Sort
+    // Sort (folders always first)
+    const folderFirst = (a, b) => {
+        if (a.isFolder && !b.isFolder) return -1;
+        if (!a.isFolder && b.isFolder) return 1;
+        return 0;
+    };
+
     if (currentSort === 'name') {
-        // Sort by parsed title for better grouping
         filteredFiles.sort((a, b) => {
+            const ff = folderFirst(a, b);
+            if (ff !== 0) return ff;
+            if (a.isFolder || b.isFolder) return a.name.localeCompare(b.name);
             const pa = parseFilename(a.name);
             const pb = parseFilename(b.name);
             const titleCompare = pa.title.localeCompare(pb.title);
             if (titleCompare !== 0) return titleCompare;
-            // Same title, sort by season then episode
             if (pa.season !== pb.season) return (pa.season || 0) - (pb.season || 0);
             if (pa.episode !== pb.episode) return (pa.episode || 0) - (pb.episode || 0);
             return 0;
         });
     } else if (currentSort === 'size') {
-        filteredFiles.sort((a, b) => b.size - a.size);
+        filteredFiles.sort((a, b) => {
+            const ff = folderFirst(a, b);
+            if (ff !== 0) return ff;
+            return b.size - a.size;
+        });
     } else if (currentSort === 'year') {
-        filteredFiles.sort((a, b) => (b.year || '0') - (a.year || '0'));
+        filteredFiles.sort((a, b) => {
+            const ff = folderFirst(a, b);
+            if (ff !== 0) return ff;
+            return (b.year || '0') - (a.year || '0');
+        });
     } else {
-        filteredFiles.sort((a, b) => b.time - a.time);
+        filteredFiles.sort((a, b) => {
+            const ff = folderFirst(a, b);
+            if (ff !== 0) return ff;
+            return b.time - a.time;
+        });
     }
 
     currentPage = 1;
@@ -494,6 +549,50 @@ function renderFiles() {
     fileList.classList.toggle('list-view', listViewMode === 'list');
 
     fileList.innerHTML = pf.map(f => {
+        // Render folder items
+        if (f.isFolder) {
+            const safeName = esc(f.name).replace(/'/g, "\\'");
+            if (listViewMode === 'grid') {
+                return `
+                <article class="file-card folder-card" onclick="openFolder('${f.id}','${safeName}')">
+                    <div class="card-header"><div class="card-ext">FOLDER</div></div>
+                    <div class="card-body">
+                        <div class="card-title" title="${esc(f.name)}">${esc(f.name)}</div>
+                        <div class="card-tags"><span class="card-tag">Folder</span></div>
+                    </div>
+                    <div class="card-footer">
+                        <span class="card-size">Folder</span>
+                        <div class="card-actions">
+                            <button class="card-btn" title="Open">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+                            </button>
+                        </div>
+                    </div>
+                </article>`;
+            }
+            return `
+            <article class="file-item" onclick="openFolder('${f.id}','${safeName}')">
+                <div class="file-row">
+                    <div class="file-icon folder">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                        </svg>
+                    </div>
+                    <div class="file-content">
+                        <div class="file-name">${esc(f.name)}</div>
+                        <div class="file-info">
+                            <span class="file-badge">Folder</span>
+                        </div>
+                    </div>
+                    <div class="file-btns">
+                        <button class="file-btn" title="Open">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+                        </button>
+                    </div>
+                </div>
+            </article>`;
+        }
+
         const ftype = getFileType(f.name);
         const isVideo = ftype === 'video';
         const showInfo = isVideo || ftype === 'audio';
@@ -1322,12 +1421,30 @@ function getBadges(d) {
     return badges;
 }
 
+function formatDuration(seconds) {
+    const s = parseFloat(seconds);
+    if (isNaN(s) || s <= 0) return null;
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = Math.floor(s % 60);
+    if (h > 0) return `${h}h ${m}min`;
+    if (m > 0) return `${m}min ${sec}s`;
+    return `${sec}s`;
+}
+
 function getDuration(d) {
     for (const t of d.tracks || []) {
         const durStr = getProp(t.properties || {}, ['Duration String', 'Duration_String']);
         if (durStr) return durStr;
         const dur = getProp(t.properties || {}, ['Duration']);
-        if (dur) return dur;
+        if (dur) {
+            // If it looks like raw seconds (e.g. "7581.600"), format nicely
+            const num = parseFloat(dur);
+            if (!isNaN(num) && num > 0 && /^[\d.]+$/.test(String(dur).trim())) {
+                return formatDuration(num);
+            }
+            return dur;
+        }
     }
     return null;
 }
@@ -1645,7 +1762,8 @@ function renderSections(d) {
         html += `<div class="track-tabs-container"><div class="track-tabs-header"><div class="section-title">Audio</div><div class="track-tabs">`;
         audioTracks.forEach((track, idx) => {
             const props = track.properties || {};
-            const lang = getProp(props, ['Language String', 'Language']) || `Track ${idx + 1}`;
+            const rawLang = getProp(props, ['Language String', 'Language']) || `Track ${idx + 1}`;
+            const lang = getLangName(rawLang) || rawLang;
             const isDefault = getProp(props, ['Default']) === 'Yes';
             html += `<button class="track-tab ${idx === 0 ? 'active' : ''}" onclick="switchTab('audio', ${idx})">${esc(lang)}${isDefault ? '<span class="tab-default">✓</span>' : ''}</button>`;
         });
@@ -1660,7 +1778,8 @@ function renderSections(d) {
         html += `<div class="track-tabs-container"><div class="track-tabs-header"><div class="section-title">Subtitles</div><div class="track-tabs">`;
         textTracks.forEach((track, idx) => {
             const props = track.properties || {};
-            const lang = getProp(props, ['Language String', 'Language']) || `Track ${idx + 1}`;
+            const rawLang = getProp(props, ['Language String', 'Language']) || `Track ${idx + 1}`;
+            const lang = getLangName(rawLang) || rawLang;
             const isDefault = getProp(props, ['Default']) === 'Yes';
             html += `<button class="track-tab ${idx === 0 ? 'active' : ''}" onclick="switchTab('text', ${idx})">${esc(lang)}${isDefault ? '<span class="tab-default">✓</span>' : ''}</button>`;
         });
@@ -1915,6 +2034,109 @@ function showToast(msg) {
 // Keyboard shortcuts
 document.addEventListener('keydown', e => {
     if (e.key === '/' && !e.ctrlKey && document.activeElement.tagName !== 'INPUT') { e.preventDefault(); document.getElementById('searchInput').focus(); }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'k') { e.preventDefault(); document.getElementById('searchInput').focus(); }
     if (e.key === 'Escape') closeModal();
 });
 
+// ========== FOLDER NAVIGATION ==========
+function renderBreadcrumbs() {
+    const container = document.getElementById('breadcrumbs');
+    if (!container) return;
+
+    if (folderPath.length === 0) {
+        container.classList.remove('visible');
+        container.innerHTML = '';
+        return;
+    }
+
+    container.classList.add('visible');
+    let html = `<button class="breadcrumb-item root" onclick="goToRoot()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        Root
+    </button>`;
+
+    folderPath.forEach((folder, idx) => {
+        html += `<span class="breadcrumb-sep">/</span>`;
+        if (idx === folderPath.length - 1) {
+            html += `<span class="breadcrumb-item current">${esc(folder.name)}</span>`;
+        } else {
+            html += `<button class="breadcrumb-item" onclick="goToPathIndex(${idx})">${esc(folder.name)}</button>`;
+        }
+    });
+
+    container.innerHTML = html;
+}
+
+async function openFolder(folderId, folderName) {
+    currentFolderId = folderId;
+    folderPath.push({ id: folderId, name: folderName });
+
+    // Update URL
+    const pathStr = folderPath.map(f => encodeURIComponent(f.name)).join('/');
+    history.pushState({ folderId, folderPath: [...folderPath] }, '', `/p/${pathStr}`);
+
+    // Show loading
+    document.getElementById('fileList').innerHTML = '<div class="loading"><div class="spinner"></div><p>Loading folder...</p></div>';
+    renderBreadcrumbs();
+
+    try {
+        const res = await fetch(`/api/files?folder=${folderId}`);
+        const files = await res.json();
+        initFiles(files);
+    } catch (err) {
+        document.getElementById('fileList').innerHTML = `<div class="empty"><h3>Error loading folder</h3><p>${err.message}</p></div>`;
+    }
+}
+
+function goToRoot() {
+    currentFolderId = null;
+    folderPath = [];
+    history.pushState({}, '', '/');
+    document.getElementById('fileList').innerHTML = '<div class="loading"><div class="spinner"></div><p>Loading...</p></div>';
+    renderBreadcrumbs();
+    fetch('/api/files').then(r => r.json()).then(files => initFiles(files));
+}
+
+function goToPathIndex(idx) {
+    // Navigate to a specific breadcrumb
+    folderPath = folderPath.slice(0, idx + 1);
+    const target = folderPath[idx];
+    currentFolderId = target.id;
+
+    const pathStr = folderPath.map(f => encodeURIComponent(f.name)).join('/');
+    history.pushState({ folderId: target.id, folderPath: [...folderPath] }, '', `/p/${pathStr}`);
+
+    document.getElementById('fileList').innerHTML = '<div class="loading"><div class="spinner"></div><p>Loading folder...</p></div>';
+    renderBreadcrumbs();
+    fetch(`/api/files?folder=${target.id}`).then(r => r.json()).then(files => initFiles(files));
+}
+
+function goBack() {
+    if (folderPath.length <= 1) {
+        goToRoot();
+    } else {
+        folderPath.pop();
+        const parent = folderPath[folderPath.length - 1];
+        currentFolderId = parent.id;
+        const pathStr = folderPath.map(f => encodeURIComponent(f.name)).join('/');
+        history.pushState({ folderId: parent.id, folderPath: [...folderPath] }, '', `/p/${pathStr}`);
+        document.getElementById('fileList').innerHTML = '<div class="loading"><div class="spinner"></div><p>Loading...</p></div>';
+        renderBreadcrumbs();
+        fetch(`/api/files?folder=${parent.id}`).then(r => r.json()).then(files => initFiles(files));
+    }
+}
+
+// Handle browser back/forward
+window.addEventListener('popstate', (e) => {
+    if (e.state && e.state.folderId) {
+        folderPath = e.state.folderPath || [];
+        currentFolderId = e.state.folderId;
+        renderBreadcrumbs();
+        fetch(`/api/files?folder=${e.state.folderId}`).then(r => r.json()).then(files => initFiles(files));
+    } else {
+        currentFolderId = null;
+        folderPath = [];
+        renderBreadcrumbs();
+        fetch('/api/files').then(r => r.json()).then(files => initFiles(files));
+    }
+});
