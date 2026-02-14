@@ -42,8 +42,8 @@ function parseFilename(filename) {
     // Extract season/episode (S01E01, S01 E01, 1x01, etc.)
     let season = null, episode = null, episodeTitle = null;
     const seMatch = clean.match(/\bS(\d{1,2})\s*[-]?\s*E(\d{1,2})\b/i) ||
-                    clean.match(/\bSeason\s*(\d{1,2})\s*Episode\s*(\d{1,2})\b/i) ||
-                    clean.match(/\b(\d{1,2})x(\d{1,2})\b/);
+        clean.match(/\bSeason\s*(\d{1,2})\s*Episode\s*(\d{1,2})\b/i) ||
+        clean.match(/\b(\d{1,2})x(\d{1,2})\b/);
     if (seMatch) {
         season = parseInt(seMatch[1]);
         episode = parseInt(seMatch[2]);
@@ -164,7 +164,7 @@ function findRelatedFiles(filename, allFiles) {
             }
             // Different episode
             else if (parsed.season !== fileParsed.season ||
-                     parsed.episode !== fileParsed.episode) {
+                parsed.episode !== fileParsed.episode) {
                 related.otherEpisodes.push({
                     ...file,
                     parsed: fileParsed
@@ -174,7 +174,7 @@ function findRelatedFiles(filename, allFiles) {
         // For movies (no season/episode), check same title different resolution
         else if (!parsed.season && !fileParsed.season) {
             const titleMatch = parsed.title.toLowerCase().replace(/[^a-z0-9]/g, '') ===
-                              fileParsed.title.toLowerCase().replace(/[^a-z0-9]/g, '');
+                fileParsed.title.toLowerCase().replace(/[^a-z0-9]/g, '');
             if (titleMatch && parsed.resolution !== fileParsed.resolution) {
                 related.otherResolutions.push({
                     ...file,
@@ -191,7 +191,7 @@ function findRelatedFiles(filename, allFiles) {
     });
 
     // Sort resolutions by quality (4K > 1080p > 720p > 480p)
-    const resOrder = {'2160P': 4, '4K': 4, 'UHD': 4, '1080P': 3, '720P': 2, '480P': 1};
+    const resOrder = { '2160P': 4, '4K': 4, 'UHD': 4, '1080P': 3, '720P': 2, '480P': 1 };
     related.otherResolutions.sort((a, b) =>
         (resOrder[b.parsed.resolution] || 0) - (resOrder[a.parsed.resolution] || 0)
     );
@@ -520,7 +520,7 @@ function renderFiles() {
                 </div>
                 <div class="card-body">
                     <div class="card-title" title="${esc(f.name)}">${esc(f.name)}</div>
-                    ${parsed.season !== null ? `<div class="card-episode">S${String(parsed.season).padStart(2,'0')}E${String(parsed.episode).padStart(2,'0')}</div>` : ''}
+                    ${parsed.season !== null ? `<div class="card-episode">S${String(parsed.season).padStart(2, '0')}E${String(parsed.episode).padStart(2, '0')}</div>` : ''}
                     ${parsed.year ? `<div class="card-year">${parsed.year}</div>` : ''}
                     <div class="card-tags">
                         ${parsed.source ? `<span class="card-tag">${parsed.source}</span>` : ''}
@@ -617,11 +617,11 @@ function renderPagination() {
     const total = Math.ceil(filteredFiles.length / perPage);
     if (total <= 1) { document.getElementById('pagination').innerHTML = ''; return; }
 
-    let html = `<button class="page-btn" onclick="goToPage(${currentPage-1})" ${currentPage===1?'disabled':''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg></button>`;
+    let html = `<button class="page-btn" onclick="goToPage(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg></button>`;
     let start = Math.max(1, currentPage - 2), end = Math.min(total, start + 4);
     if (end - start < 4) start = Math.max(1, end - 4);
-    for (let i = start; i <= end; i++) html += `<button class="page-btn ${i===currentPage?'active':''}" onclick="goToPage(${i})">${i}</button>`;
-    html += `<button class="page-btn" onclick="goToPage(${currentPage+1})" ${currentPage===total?'disabled':''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></button>`;
+    for (let i = start; i <= end; i++) html += `<button class="page-btn ${i === currentPage ? 'active' : ''}" onclick="goToPage(${i})">${i}</button>`;
+    html += `<button class="page-btn" onclick="goToPage(${currentPage + 1})" ${currentPage === total ? 'disabled' : ''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></button>`;
     document.getElementById('pagination').innerHTML = html;
 }
 
@@ -652,23 +652,48 @@ async function openInfo(id, name, size, isRetry = false) {
     document.getElementById('modalContent').innerHTML = `<div class="loading"><div class="spinner"></div><p>Analyzing...</p></div>`;
 
     try {
-        const res = await fetch('/api/info?id=' + id);
-        const data = await res.json();
-        if (!data.success || !data.streamUrl) throw new Error('Failed to get stream URL');
+        // Primary: Use server-side MediaInfo API (fast)
+        let result = null;
+        let filename = name;
+        let filesize = size;
 
-        const streamUrl = data.streamUrl;
-        const MI = await MediaInfo({ format: 'object' });
-        const fileSize = size;
+        try {
+            const res = await fetch('/api/mediainfo?id=' + id);
+            const data = await res.json();
+            if (data.success && data.mediainfo && data.mediainfo.media && data.mediainfo.media.track) {
+                result = data.mediainfo;
+                filename = data.filename || name;
+                filesize = data.filesize || size;
+            }
+        } catch (apiErr) {
+            console.warn('Server-side MediaInfo failed, falling back to client-side:', apiErr.message);
+        }
 
-        const getChunk = async (chunkSize, offset) => {
-            const response = await fetch(streamUrl, {
-                headers: { Range: `bytes=${offset}-${offset + chunkSize - 1}` }
-            });
-            return new Uint8Array(await response.arrayBuffer());
-        };
+        // Fallback: Use client-side WASM analysis
+        if (!result) {
+            const infoRes = await fetch('/api/info?id=' + id);
+            const infoData = await infoRes.json();
+            if (!infoData.success || !infoData.streamUrl) throw new Error('Failed to get stream URL');
 
-        const result = await MI.analyzeData(fileSize, getChunk);
-        currentMediaInfo = convertMediaInfoResult(result, name, size);
+            const streamUrl = infoData.streamUrl;
+            filename = infoData.filename || name;
+            filesize = infoData.filesize || size;
+            const MediaInfoFactory = window.MediaInfoFactory || window.MediaInfo;
+            if (!MediaInfoFactory) throw new Error('MediaInfo library not loaded');
+
+            const MI = await MediaInfoFactory({ format: 'object' });
+
+            const getChunk = async (chunkSize, offset) => {
+                const response = await fetch(streamUrl, {
+                    headers: { Range: `bytes=${offset}-${offset + chunkSize - 1}` }
+                });
+                return new Uint8Array(await response.arrayBuffer());
+            };
+
+            result = await MI.analyzeData(filesize, getChunk);
+        }
+
+        currentMediaInfo = convertMediaInfoResult(result, filename, filesize);
         renderModal();
     } catch (e) {
         document.getElementById('modalContent').innerHTML = `
@@ -792,7 +817,7 @@ function renderMovieInfo(data) {
     const votesStr = data.voteCount ? `(${data.voteCount.toLocaleString()})` : '';
 
     // Format budget/revenue
-    const fmtMoney = (n) => n > 0 ? '$' + (n >= 1e6 ? (n/1e6).toFixed(1) + 'M' : n.toLocaleString()) : '';
+    const fmtMoney = (n) => n > 0 ? '$' + (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n.toLocaleString()) : '';
 
     // Hero section
     let html = `<div class="movie-hero">
@@ -909,18 +934,18 @@ function toggleReview(idx, btn) {
 
 // Country name map
 const countryNames = {
-    'bd':'Bangladesh','in':'India','us':'USA','ca':'Canada','gb':'UK','au':'Australia',
-    'de':'Germany','fr':'France','br':'Brazil','jp':'Japan','it':'Italy','es':'Spain',
-    'mx':'Mexico','kr':'South Korea','nl':'Netherlands','se':'Sweden','no':'Norway',
-    'dk':'Denmark','fi':'Finland','pl':'Poland','tr':'Turkey','ru':'Russia','za':'South Africa',
-    'ar':'Argentina','cl':'Chile','co':'Colombia','pe':'Peru','th':'Thailand','id':'Indonesia',
-    'my':'Malaysia','ph':'Philippines','sg':'Singapore','hk':'Hong Kong','tw':'Taiwan',
-    'ie':'Ireland','at':'Austria','ch':'Switzerland','be':'Belgium','pt':'Portugal',
-    'nz':'New Zealand','cz':'Czech Republic','ro':'Romania','hu':'Hungary','il':'Israel',
-    'ae':'UAE','sa':'Saudi Arabia','eg':'Egypt','ng':'Nigeria','ke':'Kenya',
-    'pk':'Pakistan','lk':'Sri Lanka','np':'Nepal','ua':'Ukraine','gr':'Greece','bg':'Bulgaria',
-    'hr':'Croatia','rs':'Serbia','sk':'Slovakia','si':'Slovenia','lt':'Lithuania','lv':'Latvia',
-    'ee':'Estonia','is':'Iceland','cy':'Cyprus','mt':'Malta','lu':'Luxembourg'
+    'bd': 'Bangladesh', 'in': 'India', 'us': 'USA', 'ca': 'Canada', 'gb': 'UK', 'au': 'Australia',
+    'de': 'Germany', 'fr': 'France', 'br': 'Brazil', 'jp': 'Japan', 'it': 'Italy', 'es': 'Spain',
+    'mx': 'Mexico', 'kr': 'South Korea', 'nl': 'Netherlands', 'se': 'Sweden', 'no': 'Norway',
+    'dk': 'Denmark', 'fi': 'Finland', 'pl': 'Poland', 'tr': 'Turkey', 'ru': 'Russia', 'za': 'South Africa',
+    'ar': 'Argentina', 'cl': 'Chile', 'co': 'Colombia', 'pe': 'Peru', 'th': 'Thailand', 'id': 'Indonesia',
+    'my': 'Malaysia', 'ph': 'Philippines', 'sg': 'Singapore', 'hk': 'Hong Kong', 'tw': 'Taiwan',
+    'ie': 'Ireland', 'at': 'Austria', 'ch': 'Switzerland', 'be': 'Belgium', 'pt': 'Portugal',
+    'nz': 'New Zealand', 'cz': 'Czech Republic', 'ro': 'Romania', 'hu': 'Hungary', 'il': 'Israel',
+    'ae': 'UAE', 'sa': 'Saudi Arabia', 'eg': 'Egypt', 'ng': 'Nigeria', 'ke': 'Kenya',
+    'pk': 'Pakistan', 'lk': 'Sri Lanka', 'np': 'Nepal', 'ua': 'Ukraine', 'gr': 'Greece', 'bg': 'Bulgaria',
+    'hr': 'Croatia', 'rs': 'Serbia', 'sk': 'Slovakia', 'si': 'Slovenia', 'lt': 'Lithuania', 'lv': 'Latvia',
+    'ee': 'Estonia', 'is': 'Iceland', 'cy': 'Cyprus', 'mt': 'Malta', 'lu': 'Luxembourg'
 };
 const countryAliases = { 'bd': 'in' };
 
@@ -952,7 +977,7 @@ async function loadWatchInfo(filename) {
                 const infoData = await infoRes.json();
                 movieInfoCache[filename] = infoData;
                 imdbId = infoData?.imdbId || '';
-            } catch (e) {}
+            } catch (e) { }
         }
 
         let url = '/api/watch?filename=' + encodeURIComponent(filename);
@@ -1112,8 +1137,8 @@ function renderSubtitles(data) {
                 <summary style="cursor:pointer;color:#888;">Debug Info (${data.debug.length} queries tried)</summary>
                 <div style="margin-top:8px;background:#1a1a1a;padding:8px;border-radius:4px;max-height:200px;overflow:auto;">
                     ${data.debug.map((d, i) => `<div style="margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid #333;">
-                        <b>#${i+1}</b> HTTP ${d.http_code} - Found: ${d.data_count}<br>
-                        <span style="color:#666;word-break:break-all;">${Object.entries(d.params).map(([k,v]) => `${k}=${v}`).join('&')}</span>
+                        <b>#${i + 1}</b> HTTP ${d.http_code} - Found: ${d.data_count}<br>
+                        <span style="color:#666;word-break:break-all;">${Object.entries(d.params).map(([k, v]) => `${k}=${v}`).join('&')}</span>
                     </div>`).join('')}
                 </div>
             </details>`;
@@ -1123,7 +1148,7 @@ function renderSubtitles(data) {
         let parsedInfo = '';
         if (data.parsed) {
             const p = data.parsed;
-            parsedInfo = `<p style="color:#888;font-size:12px;margin-top:8px;">Parsed: ${p.title}${p.year ? ` (${p.year})` : ''}${p.season ? ` S${String(p.season).padStart(2,'0')}E${String(p.episode).padStart(2,'0')}` : ''}</p>`;
+            parsedInfo = `<p style="color:#888;font-size:12px;margin-top:8px;">Parsed: ${p.title}${p.year ? ` (${p.year})` : ''}${p.season ? ` S${String(p.season).padStart(2, '0')}E${String(p.episode).padStart(2, '0')}` : ''}</p>`;
         }
 
         subsView.innerHTML = `
@@ -1445,7 +1470,7 @@ function renderRelatedFiles(related) {
         `;
 
         // Sort resolutions by quality
-        const resOrder = {'2160P': 4, '4K': 4, 'UHD': 4, '1080P': 3, '720P': 2, '480P': 1};
+        const resOrder = { '2160P': 4, '4K': 4, 'UHD': 4, '1080P': 3, '720P': 2, '480P': 1 };
 
         for (const [season, episodes] of Object.entries(episodesBySeason).sort((a, b) => a[0] - b[0])) {
             html += `
@@ -1459,7 +1484,7 @@ function renderRelatedFiles(related) {
 
             for (const epData of sortedEpisodes) {
                 const isCurrent = parseInt(season) === related.current.season &&
-                                  epData.episode === related.current.episode;
+                    epData.episode === related.current.episode;
 
                 // Sort resolutions by quality (highest first)
                 epData.resolutions.sort((a, b) =>
@@ -1507,7 +1532,7 @@ function renderRelatedFiles(related) {
                     <div class="like-this-title">${esc(parsed.title)}</div>
                     <div class="like-this-meta">
                         ${parsed.year ? `<span>${parsed.year}</span>` : ''}
-                        ${parsed.season !== null ? `<span>S${String(parsed.season).padStart(2,'0')}</span>` : ''}
+                        ${parsed.season !== null ? `<span>S${String(parsed.season).padStart(2, '0')}</span>` : ''}
                         ${parsed.resolution ? `<span class="like-res">${parsed.resolution}</span>` : ''}
                     </div>
                 </div>
@@ -1570,7 +1595,7 @@ const IMPORTANT_PROPS = {
 };
 
 function formatPropKey(key) {
-    return key.replace(/_/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/ String\d*$/i, '').replace(/^(.)/,  c => c.toUpperCase());
+    return key.replace(/_/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/ String\d*$/i, '').replace(/^(.)/, c => c.toUpperCase());
 }
 
 function renderTrackContent(props, importantKeys) {
@@ -1804,7 +1829,7 @@ function closePlayer() {
 function handlePlayerKeyboard(e) {
     if (!playerModal?.classList.contains('show')) return;
 
-    switch(e.key) {
+    switch (e.key) {
         case 'Escape':
             closePlayer();
             break;
@@ -1856,7 +1881,7 @@ function playIn(player, fileId, fileName) {
     const encodedName = encodeURIComponent(fileName);
 
     let playUrl = '';
-    switch(player) {
+    switch (player) {
         case 'vlc-desktop': case 'vlc-mobile': playUrl = 'vlc://' + url; break;
         case 'potplayer': playUrl = 'potplayer://' + url; break;
         case 'iina': playUrl = 'iina://weblink?url=' + encodedUrl; break;
