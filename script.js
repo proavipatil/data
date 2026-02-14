@@ -284,6 +284,8 @@ function initFiles(files) {
 
     filteredFiles = window.allFiles;
     document.getElementById('totalCount').textContent = files.length;
+    const countEl = document.getElementById('filteredCount');
+    if (countEl) countEl.textContent = filteredFiles.length;
     renderFiles();
     renderPagination();
 }
