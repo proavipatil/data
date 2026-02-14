@@ -657,19 +657,17 @@ async function openInfo(id, name, size, isRetry = false) {
         if (!data.success || !data.streamUrl) throw new Error('Failed to get stream URL');
 
         const streamUrl = data.streamUrl;
-        const MI = await MediaInfo({format: 'object'});
+        const MI = await MediaInfo({ format: 'object' });
         const fileSize = size;
-        const chunkSize = 1024 * 1024;
-        let offset = 0;
 
-        const getChunk = async (size, offset) => {
+        const getChunk = async (chunkSize, offset) => {
             const response = await fetch(streamUrl, {
-                headers: { Range: `bytes=${offset}-${offset + size - 1}` }
+                headers: { Range: `bytes=${offset}-${offset + chunkSize - 1}` }
             });
             return new Uint8Array(await response.arrayBuffer());
         };
 
-        const result = await MI.analyzeData(() => fileSize, getChunk);
+        const result = await MI.analyzeData(fileSize, getChunk);
         currentMediaInfo = convertMediaInfoResult(result, name, size);
         renderModal();
     } catch (e) {
