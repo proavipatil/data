@@ -649,44 +649,36 @@ async function openInfo(id, name, size, isRetry = false) {
         document.body.style.overflow = 'hidden';
     }
 
-    const retryText = infoRetryCount > 0 ? ` (Attempt ${infoRetryCount + 1}/${MAX_RETRIES})` : '';
-    document.getElementById('modalContent').innerHTML = `<div class="loading"><div class="spinner"></div><p>Analyzing...${retryText}</p></div>`;
+    document.getElementById('modalContent').innerHTML = `<div class="loading"><div class="spinner"></div><p>Analyzing...</p></div>`;
 
     try {
         const res = await fetch('/api/info?id=' + id);
         const data = await res.json();
+        if (!data.success || !data.streamUrl) throw new Error('Failed to get stream URL');
 
-        if (data.error) throw new Error(data.error);
-        if (!data.mediaInfo) throw new Error('Failed to analyze');
+        const streamUrl = data.streamUrl;
+        const MI = await MediaInfo({format: 'object'});
+        const fileSize = size;
+        const chunkSize = 1024 * 1024;
+        let offset = 0;
 
-        currentMediaInfo = convertMediaInfoResult(data.mediaInfo, data.filename, data.filesize);
-        infoRetryCount = 0;
+        const getChunk = async (size, offset) => {
+            const response = await fetch(streamUrl, {
+                headers: { Range: `bytes=${offset}-${offset + size - 1}` }
+            });
+            return new Uint8Array(await response.arrayBuffer());
+        };
+
+        const result = await MI.analyzeData(() => fileSize, getChunk);
+        currentMediaInfo = convertMediaInfoResult(result, name, size);
         renderModal();
-
     } catch (e) {
-        infoRetryCount++;
-
-        // Auto-retry if under max retries
-        if (infoRetryCount < MAX_RETRIES) {
-            const delay = Math.min(1000 * infoRetryCount, 3000); // Exponential backoff, max 3s
-            document.getElementById('modalContent').innerHTML = `
-                <div class="loading">
-                    <div class="spinner"></div>
-                    <p>Retrying in ${delay/1000}s... (Attempt ${infoRetryCount + 1}/${MAX_RETRIES})</p>
-                </div>`;
-
-            setTimeout(() => openInfo(id, name, size, true), delay);
-        } else {
-            // Max retries reached, show manual retry button
-            document.getElementById('modalContent').innerHTML = `
-                <div class="loading">
-                    <p style="color:#f87171;margin-bottom:15px;">Failed after ${MAX_RETRIES} attempts</p>
-                    <p style="font-size:13px;color:#888;margin-bottom:15px;">${e.message}</p>
-                    <button onclick="infoRetryCount=0;openInfo('${id}', '${name.replace(/'/g, "\\'")}', ${size})" style="padding:10px 24px;background:#222;border:1px solid #333;border-radius:6px;color:#fff;cursor:pointer;font-size:13px;">
-                        Try Again
-                    </button>
-                </div>`;
-        }
+        document.getElementById('modalContent').innerHTML = `
+            <div class="loading">
+                <p style="color:#f87171;margin-bottom:15px;">Analysis failed</p>
+                <p style="font-size:13px;color:#888;margin-bottom:15px;">${e.message}</p>
+                <button onclick="openInfo('${id}', '${name.replace(/'/g, "\\'")}', ${size})" style="padding:10px 24px;background:#222;border:1px solid #333;border-radius:6px;color:#fff;cursor:pointer;font-size:13px;">Try Again</button>
+            </div>`;
     }
 }
 
