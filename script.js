@@ -1,7 +1,8 @@
 // DUDU Archive - Main JavaScript
 // Badge base URL
-const MEDIA_URL = window.location.origin;  // Uses same domain
-const BADGE_URL = 'https://dudux.eu/badges/';  // External badges
+const BADGE_URL = 'https://dudux.lol/badges/';
+// Media Proxy URL (hides R2 links)
+const MEDIA_URL = window.location.origin;
 
 // State
 let filteredFiles = [];
@@ -764,7 +765,7 @@ function setView(v) {
     if (v === 'subs' && currentFileName) loadSubtitles(currentFileName);
 }
 
-// Movie info loading
+// Movie info loading (TMDB only)
 async function loadMovieInfo(filename) {
     const movieView = document.querySelector('.movie-view');
     if (!movieView) return;
@@ -777,8 +778,8 @@ async function loadMovieInfo(filename) {
     movieView.innerHTML = `<div class="movie-loading"><div class="spinner"></div><p style="margin-top: 16px; color: #666;">Loading...</p></div>`;
 
     try {
-        // Single API call - TMDB provides all info
-        const data = await fetch('movieinfo.php?filename=' + encodeURIComponent(filename)).then(r => r.json()).catch(() => ({ success: false }));
+        const res = await fetch('/api/movie?filename=' + encodeURIComponent(filename));
+        const data = await res.json();
         movieInfoCache[filename] = data;
         renderMovieInfo(data);
     } catch (err) {
@@ -790,128 +791,100 @@ function renderMovieInfo(data) {
     const movieView = document.querySelector('.movie-view');
     if (!movieView) return;
 
-    if (!data.success || !data.movie) {
+    if (!data.success) {
         movieView.innerHTML = `<div class="movie-not-found"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M8 15h8M9 9h.01M15 9h.01"/></svg><h3>Movie not found</h3><p>"${data.parsed?.title || 'Unknown'}"${data.parsed?.year ? ` (${data.parsed.year})` : ''}</p></div>`;
         return;
     }
 
-    const m = data.movie;
-    const posterUrl = m.Poster && m.Poster !== 'N/A' ? m.Poster : null;
+    const typeLabel = data.type === 'show' ? 'TV Series' : 'Movie';
+    const runtimeStr = data.runtime ? `${Math.floor(data.runtime / 60)}h ${data.runtime % 60}m` : '';
+    const ratingStr = data.rating ? `★ ${data.rating.toFixed(1)}` : '';
+    const votesStr = data.voteCount ? `(${data.voteCount.toLocaleString()})` : '';
 
-    let ratingsHtml = '';
-    // Always show as IMDb rating
-    if (m.imdbRating && m.imdbRating !== 'N/A') {
-        ratingsHtml = `<div class="movie-rating-item"><div class="rating-icon"><img src="badges/imdb.png" alt="IMDb" class="rating-logo"></div><div class="rating-source">IMDb</div><div class="rating-value">${m.imdbRating}/10</div></div>`;
-    }
+    // Format budget/revenue
+    const fmtMoney = (n) => n > 0 ? '$' + (n >= 1e6 ? (n/1e6).toFixed(1) + 'M' : n.toLocaleString()) : '';
 
-    let castHtml = '';
-    if (m.Actors && m.Actors !== 'N/A') {
-        castHtml = m.Actors.split(', ').map(actor => `<span class="movie-cast-item">${actor}</span>`).join('');
-    }
-
-    const typeLabel = m.Type === 'series' ? 'TV Series' : m.Type === 'movie' ? 'Movie' : m.Type;
-    const votes = m.imdbVotes && m.imdbVotes !== 'N/A' ? m.imdbVotes : null;
-
-    let awardsHtml = '';
-    if (m.Awards && m.Awards !== 'N/A') {
-        awardsHtml = `<div class="movie-awards"><div class="movie-section-title">Awards</div><div class="awards-text">${m.Awards}</div></div>`;
-    }
-
-    // Build tagline HTML
-    let taglineHtml = '';
-    if (m.Tagline) {
-        taglineHtml = `<div class="movie-tagline">"${m.Tagline}"</div>`;
-    }
-
-    // TV Series extra info
-    let tvInfoHtml = '';
-    if (m.Type === 'series') {
-        const parts = [];
-        if (m.Seasons) parts.push(`${m.Seasons} Season${m.Seasons > 1 ? 's' : ''}`);
-        if (m.Episodes) parts.push(`${m.Episodes} Episodes`);
-        if (m.Networks) parts.push(m.Networks);
-        if (parts.length > 0) {
-            tvInfoHtml = `<div class="movie-tv-info">${parts.join(' • ')}</div>`;
-        }
-    }
-
-    movieView.innerHTML = `
-        <div class="movie-hero">
-            <div class="movie-poster">
-                ${posterUrl ? `<img src="${posterUrl}" alt="${m.Title}" loading="lazy">` : `<div class="movie-poster-placeholder">?</div>`}
-            </div>
-            <h2 class="movie-title">${m.Title}</h2>
-            ${taglineHtml}
-            <div class="movie-meta">
-                ${m.imdbRating && m.imdbRating !== 'N/A' ? `<span class="movie-tag rating">★ ${m.imdbRating}${votes ? ` <span class="votes">(${votes})</span>` : ''}</span>` : ''}
-                ${m.Year && m.Year !== 'N/A' ? `<span class="movie-tag">${m.Year}</span>` : ''}
-                ${m.Runtime && m.Runtime !== 'N/A' ? `<span class="movie-tag">${m.Runtime}</span>` : ''}
-                ${m.Rated && m.Rated !== 'N/A' ? `<span class="movie-tag">${m.Rated}</span>` : ''}
-                ${typeLabel ? `<span class="movie-tag rated">${typeLabel}</span>` : ''}
-            </div>
-            ${tvInfoHtml}
-            ${m.Genre && m.Genre !== 'N/A' ? `<div class="movie-genre">${m.Genre.replace(/,/g, ' • ')}</div>` : ''}
-            ${m.Plot && m.Plot !== 'N/A' ? `<div class="movie-plot">${m.Plot}</div>` : ''}
-            ${ratingsHtml ? `<div class="movie-ratings">${ratingsHtml}</div>` : ''}
+    // Hero section
+    let html = `<div class="movie-hero">
+        <div class="movie-poster">
+            ${data.poster ? `<img src="${data.poster}" alt="${data.title}" loading="lazy">` : `<div class="movie-poster-placeholder">?</div>`}
         </div>
-        ${awardsHtml}
-        ${castHtml ? `<div class="movie-cast"><div class="movie-section-title">Cast</div><div class="movie-cast-list">${castHtml}</div></div>` : ''}
-        <div class="movie-details">
-            <div class="movie-detail-grid">
-                ${m.Director && m.Director !== 'N/A' ? `<div class="movie-detail-item"><span class="movie-detail-label">${m.Type === 'series' ? 'Creator' : 'Director'}</span><span class="movie-detail-value">${m.Director}</span></div>` : ''}
-                ${m.Writer && m.Writer !== 'N/A' ? `<div class="movie-detail-item"><span class="movie-detail-label">Writer</span><span class="movie-detail-value">${m.Writer}</span></div>` : ''}
-                ${m.Language && m.Language !== 'N/A' ? `<div class="movie-detail-item"><span class="movie-detail-label">Language</span><span class="movie-detail-value">${m.Language}</span></div>` : ''}
-                ${m.Country && m.Country !== 'N/A' ? `<div class="movie-detail-item"><span class="movie-detail-label">Country</span><span class="movie-detail-value">${m.Country}</span></div>` : ''}
-                ${m.Released && m.Released !== 'N/A' ? `<div class="movie-detail-item"><span class="movie-detail-label">Released</span><span class="movie-detail-value">${m.Released}</span></div>` : ''}
-                ${m.Status ? `<div class="movie-detail-item"><span class="movie-detail-label">Status</span><span class="movie-detail-value">${m.Status}</span></div>` : ''}
-                ${m.Budget ? `<div class="movie-detail-item"><span class="movie-detail-label">Budget</span><span class="movie-detail-value">${m.Budget}</span></div>` : ''}
-                ${m.BoxOffice ? `<div class="movie-detail-item"><span class="movie-detail-label">Box Office</span><span class="movie-detail-value">${m.BoxOffice}</span></div>` : ''}
-                ${m.ProductionCompanies ? `<div class="movie-detail-item"><span class="movie-detail-label">Production</span><span class="movie-detail-value">${m.ProductionCompanies}</span></div>` : ''}
-            </div>
+        <h2 class="movie-title">${data.title}</h2>
+        ${data.originalTitle ? `<div class="movie-original-title">${data.originalTitle}</div>` : ''}
+        ${data.tagline ? `<div class="movie-tagline">"${data.tagline}"</div>` : ''}
+        <div class="movie-meta">
+            ${ratingStr ? `<span class="movie-tag rating">${ratingStr} ${votesStr}</span>` : ''}
+            ${data.year ? `<span class="movie-tag">${data.year}</span>` : ''}
+            ${runtimeStr ? `<span class="movie-tag">${runtimeStr}</span>` : ''}
+            ${data.certification ? `<span class="movie-tag">${data.certification}</span>` : ''}
+            <span class="movie-tag rated">${typeLabel}</span>
+            ${data.seasons ? `<span class="movie-tag">${data.seasons} Season${data.seasons > 1 ? 's' : ''}</span>` : ''}
         </div>
-        <div id="movieExtendedContent"></div>
-    `;
+        ${data.genres?.length ? `<div class="movie-genre">${data.genres.join(' • ')}</div>` : ''}
+        ${data.overview ? `<div class="movie-plot">${data.overview}</div>` : ''}
+        ${buildRatingsHtml(data)}
+    </div>`;
 
-    if (data.tmdb) renderExtendedContent(data.tmdb);
+    // Details grid
+    let detailItems = '';
+    if (data.directors?.length) detailItems += `<div class="movie-detail-item"><span class="movie-detail-label">Director</span><span class="movie-detail-value">${data.directors.join(', ')}</span></div>`;
+    if (data.writers?.length) detailItems += `<div class="movie-detail-item"><span class="movie-detail-label">Writer</span><span class="movie-detail-value">${data.writers.join(', ')}</span></div>`;
+    if (data.languages?.length) detailItems += `<div class="movie-detail-item"><span class="movie-detail-label">Language</span><span class="movie-detail-value">${data.languages.join(', ')}</span></div>`;
+    if (data.countries?.length) detailItems += `<div class="movie-detail-item"><span class="movie-detail-label">Country</span><span class="movie-detail-value">${data.countries.join(', ')}</span></div>`;
+    if (data.releaseDate) detailItems += `<div class="movie-detail-item"><span class="movie-detail-label">Released</span><span class="movie-detail-value">${data.releaseDate}</span></div>`;
+    if (data.status) detailItems += `<div class="movie-detail-item"><span class="movie-detail-label">Status</span><span class="movie-detail-value">${data.status}</span></div>`;
+    if (fmtMoney(data.budget)) detailItems += `<div class="movie-detail-item"><span class="movie-detail-label">Budget</span><span class="movie-detail-value">${fmtMoney(data.budget)}</span></div>`;
+    if (fmtMoney(data.revenue)) detailItems += `<div class="movie-detail-item"><span class="movie-detail-label">Revenue</span><span class="movie-detail-value">${fmtMoney(data.revenue)}</span></div>`;
+    if (data.companies?.length) detailItems += `<div class="movie-detail-item"><span class="movie-detail-label">Production</span><span class="movie-detail-value">${data.companies.join(', ')}</span></div>`;
+
+    if (detailItems) html += `<div class="movie-details"><div class="movie-detail-grid">${detailItems}</div></div>`;
+
+    // Cast with photos
+    if (data.cast?.length > 0) {
+        html += `<div class="movie-cast-photos"><div class="movie-section-title">Cast</div><div class="cast-grid">${data.cast.map(c => `<div class="cast-item"><div class="cast-photo">${c.photo ? `<img src="${c.photo}" alt="${c.name}" loading="lazy">` : `<div class="cast-photo-placeholder">?</div>`}</div><div class="cast-name">${c.name}</div><div class="cast-character">${c.character || ''}</div></div>`).join('')}</div></div>`;
+    }
+
+    // Images
+    if (data.images?.length > 0) {
+        html += `<div class="movie-photos"><div class="movie-section-title">Photos</div><div class="photos-carousel">${data.images.map(img => `<div class="photo-item ${img.type}" onclick="openPhotoLightbox('${img.url_full}')"><img src="${img.url}" alt="Photo" loading="lazy"></div>`).join('')}</div></div>`;
+    }
+
+    // Videos
+    if (data.videos?.length > 0) {
+        html += `<div class="movie-videos"><div class="movie-section-title">Videos</div><div class="videos-grid">${data.videos.map(v => `<div class="video-item" onclick="openVideoModal('${v.embed}')"><div class="video-thumb"><img src="${v.thumbnail}" alt="${v.name}" loading="lazy"><div class="video-play-icon">▶</div></div><div class="video-title">${v.name}</div><div class="video-type">${v.type}</div></div>`).join('')}</div></div>`;
+    }
+
+    // Reviews
+    if (data.reviews?.length > 0) {
+        html += `<div class="movie-reviews"><div class="movie-section-title">Reviews</div><div class="reviews-list">${data.reviews.map((r, idx) => `<div class="review-item"><div class="review-header"><div class="review-avatar">${r.avatar ? `<img src="${r.avatar}" alt="${r.author}">` : `<div class="review-avatar-placeholder">?</div>`}</div><div class="review-author"><div class="review-author-name">${r.author}</div>${r.rating ? `<div class="review-rating"><span class="star">★</span> ${r.rating}/10</div>` : ''}${r.created ? `<div class="review-date">${r.created}</div>` : ''}</div></div><div class="review-content" id="review-${idx}">${escapeHtml(r.content.substring(0, 500))}${r.content.length > 500 ? '...' : ''}</div>${r.content.length > 300 ? `<div class="review-expand" onclick="toggleReview(${idx}, this)">Read more</div>` : ''}</div>`).join('')}</div></div>`;
+    }
+
+    movieView.innerHTML = html;
 }
 
-function renderExtendedContent(tmdb) {
-    const container = document.getElementById('movieExtendedContent');
-    if (!container || !tmdb.success) return;
-
-    let html = '';
-
-    if (tmdb.images && tmdb.images.length > 0) {
-        html += `<div class="movie-photos"><div class="movie-section-title">Photos</div><div class="photos-carousel">${tmdb.images.map(img => `<div class="photo-item ${img.type}" onclick="openPhotoLightbox('${img.url_full}')"><img src="${img.url}" alt="Photo" loading="lazy"></div>`).join('')}</div></div>`;
+function buildRatingsHtml(data) {
+    let items = '';
+    if (data.omdbRatings && data.omdbRatings.length > 0) {
+        items = data.omdbRatings.map(r => {
+            let icon = '', source = r.Source;
+            if (r.Source.includes('Internet Movie Database')) {
+                icon = `<img src="badges/imdb.png" alt="IMDb" class="rating-logo">`;
+                source = 'IMDb';
+            }
+            else if (r.Source.includes('Rotten Tomatoes')) {
+                icon = `<img src="badges/rottentomatoes.png" alt="Rotten Tomatoes" class="rating-logo">`;
+                source = 'Rotten';
+            }
+            else if (r.Source.includes('Metacritic')) {
+                icon = `<img src="badges/metacritic.png" alt="Metacritic" class="rating-logo">`;
+                source = 'Meta';
+            }
+            return `<div class="movie-rating-item"><div class="rating-icon">${icon}</div><div class="rating-source">${source}</div><div class="rating-value">${r.Value}</div></div>`;
+        }).join('');
+    } else if (data.imdbRating) {
+        items = `<div class="movie-rating-item"><div class="rating-icon"><img src="badges/imdb.png" alt="IMDb" class="rating-logo"></div><div class="rating-source">IMDb</div><div class="rating-value">${data.imdbRating}/10${data.imdbVotes ? ` <span class="votes">(${data.imdbVotes})</span>` : ''}</div></div>`;
     }
-
-    if (tmdb.videos && tmdb.videos.length > 0) {
-        html += `<div class="movie-videos"><div class="movie-section-title">Videos</div><div class="videos-grid">${tmdb.videos.map(v => `<div class="video-item" onclick="openVideoModal('${v.embed}')"><div class="video-thumb"><img src="${v.thumbnail}" alt="${v.name}" loading="lazy"><div class="video-play-icon">▶</div></div><div class="video-title">${v.name}</div><div class="video-type">${v.type}</div></div>`).join('')}</div></div>`;
-    }
-
-    if (tmdb.cast && tmdb.cast.length > 0) {
-        html += `<div class="movie-cast-photos"><div class="movie-section-title">Cast</div><div class="cast-grid">${tmdb.cast.map(c => `<div class="cast-item"><div class="cast-photo">${c.photo ? `<img src="${c.photo}" alt="${c.name}" loading="lazy">` : `<div class="cast-photo-placeholder">?</div>`}</div><div class="cast-name">${c.name}</div><div class="cast-character">${c.character || ''}</div></div>`).join('')}</div></div>`;
-    }
-
-    if (tmdb.reviews && tmdb.reviews.length > 0) {
-        const r = tmdb.reviews[0];
-        html += `<div class="movie-reviews">
-            <div class="movie-section-title">Review</div>
-            <div class="review-item">
-                <div class="review-header">
-                    <div class="review-avatar">${r.avatar ? `<img src="${r.avatar}" alt="${r.author}">` : `<div class="review-avatar-placeholder">${r.author.charAt(0).toUpperCase()}</div>`}</div>
-                    <div class="review-author">
-                        <div class="review-author-name">${r.author}</div>
-                        ${r.rating ? `<div class="review-rating"><span class="star">★</span> ${r.rating}/10</div>` : ''}
-                    </div>
-                </div>
-                <div class="review-content" id="review-0">${escapeHtml(r.content.substring(0, 500))}${r.content.length > 500 ? '...' : ''}</div>
-                ${r.content.length > 300 ? `<div class="review-expand" onclick="toggleReview(0, this)">Read more</div>` : ''}
-            </div>
-        </div>`;
-    }
-
-    container.innerHTML = html;
+    return items ? `<div class="movie-ratings">${items}</div>` : '';
 }
 
 function escapeHtml(text) {
@@ -944,36 +917,25 @@ function toggleReview(idx, btn) {
     }
 }
 
-function scrollReviews(direction) {
-    const carousel = document.getElementById('reviewsCarousel');
-    if (carousel) {
-        const cardWidth = carousel.querySelector('.review-card')?.offsetWidth || 300;
-        carousel.scrollBy({ left: direction * (cardWidth + 16), behavior: 'smooth' });
-    }
-}
+// Country name map
+const countryNames = {
+    'bd':'Bangladesh','in':'India','us':'USA','ca':'Canada','gb':'UK','au':'Australia',
+    'de':'Germany','fr':'France','br':'Brazil','jp':'Japan','it':'Italy','es':'Spain',
+    'mx':'Mexico','kr':'South Korea','nl':'Netherlands','se':'Sweden','no':'Norway',
+    'dk':'Denmark','fi':'Finland','pl':'Poland','tr':'Turkey','ru':'Russia','za':'South Africa',
+    'ar':'Argentina','cl':'Chile','co':'Colombia','pe':'Peru','th':'Thailand','id':'Indonesia',
+    'my':'Malaysia','ph':'Philippines','sg':'Singapore','hk':'Hong Kong','tw':'Taiwan',
+    'ie':'Ireland','at':'Austria','ch':'Switzerland','be':'Belgium','pt':'Portugal',
+    'nz':'New Zealand','cz':'Czech Republic','ro':'Romania','hu':'Hungary','il':'Israel',
+    'ae':'UAE','sa':'Saudi Arabia','eg':'Egypt','ng':'Nigeria','ke':'Kenya',
+    'pk':'Pakistan','lk':'Sri Lanka','np':'Nepal','ua':'Ukraine','gr':'Greece','bg':'Bulgaria',
+    'hr':'Croatia','rs':'Serbia','sk':'Slovakia','si':'Slovenia','lt':'Lithuania','lv':'Latvia',
+    'ee':'Estonia','is':'Iceland','cy':'Cyprus','mt':'Malta','lu':'Luxembourg'
+};
+const countryAliases = { 'bd': 'in' };
 
-function showFullReview(idx) {
-    if (!window.currentReviews || !window.currentReviews[idx]) return;
-    const r = window.currentReviews[idx];
-
-    const modal = document.createElement('div');
-    modal.className = 'review-modal-overlay';
-    modal.innerHTML = `
-        <div class="review-modal">
-            <div class="review-modal-close" onclick="this.parentElement.parentElement.remove()">×</div>
-            <div class="review-modal-header">
-                <div class="review-avatar">${r.avatar ? `<img src="${r.avatar}" alt="${r.author}">` : `<div class="review-avatar-placeholder">${r.author.charAt(0).toUpperCase()}</div>`}</div>
-                <div class="review-author">
-                    <div class="review-author-name">${r.author}</div>
-                    ${r.rating ? `<div class="review-rating"><span class="star">★</span> ${r.rating}/10</div>` : ''}
-                </div>
-            </div>
-            <div class="review-modal-content">${escapeHtml(r.content)}</div>
-        </div>
-    `;
-    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
-    document.body.appendChild(modal);
-}
+let currentWatchData = null;
+let currentWatchCountry = 'bd';
 
 // Watch info loading
 async function loadWatchInfo(filename) {
@@ -981,19 +943,42 @@ async function loadWatchInfo(filename) {
     if (!watchView) return;
 
     if (watchInfoCache[filename]) {
-        renderWatchInfo(watchInfoCache[filename]);
+        currentWatchData = watchInfoCache[filename];
+        renderWatchInfo(currentWatchData);
         return;
     }
 
     watchView.innerHTML = `<div class="watch-loading"><div class="spinner"></div><p style="margin-top: 16px; color: #666;">Finding streaming options...</p></div>`;
 
     try {
-        const res = await fetch('wheretowatch.php?filename=' + encodeURIComponent(filename));
+        // Always fetch movie info first to get accurate IMDb ID
+        let imdbId = movieInfoCache[filename]?.imdbId || '';
+        if (!imdbId) {
+            try {
+                const ac = new AbortController();
+                const t = setTimeout(() => ac.abort(), 10000);
+                const infoRes = await fetch('/api/movie?filename=' + encodeURIComponent(filename), { signal: ac.signal });
+                clearTimeout(t);
+                const infoData = await infoRes.json();
+                movieInfoCache[filename] = infoData;
+                imdbId = infoData?.imdbId || '';
+            } catch (e) {}
+        }
+
+        let url = '/api/watch?filename=' + encodeURIComponent(filename);
+        if (imdbId) url += '&imdbid=' + encodeURIComponent(imdbId);
+
+        const ac2 = new AbortController();
+        const t2 = setTimeout(() => ac2.abort(), 30000);
+        const res = await fetch(url, { signal: ac2.signal });
+        clearTimeout(t2);
         const data = await res.json();
         watchInfoCache[filename] = data;
+        currentWatchData = data;
         renderWatchInfo(data);
     } catch (err) {
-        watchView.innerHTML = `<div class="watch-not-found"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg><h3>Error loading streaming info</h3><p>${err.message}</p></div>`;
+        const msg = err.name === 'AbortError' ? 'Request timed out. Please try again.' : err.message;
+        watchView.innerHTML = `<div class="watch-not-found"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg><h3>Error loading streaming info</h3><p>${msg}</p></div>`;
     }
 }
 
@@ -1006,27 +991,97 @@ function renderWatchInfo(data) {
         return;
     }
 
-    const offers = data.offers || {};
-    const hasAnyOffers = Object.values(offers).some(arr => arr.length > 0);
+    const allOffers = data.allCountryOffers || {};
+    const available = data.availableCountries || [];
+    const defaults = ['bd', 'in', 'us', 'gb', 'ca'];
 
-    let sectionsHtml = '';
+    const resolvedCountry = countryAliases[currentWatchCountry] || currentWatchCountry;
 
-    if (offers.stream?.length > 0) sectionsHtml += `<div class="watch-section"><div class="watch-section-title">Stream</div><div class="watch-providers">${offers.stream.map(p => renderProvider(p)).join('')}</div></div>`;
-    if (offers.free?.length > 0) sectionsHtml += `<div class="watch-section"><div class="watch-section-title">Free with Ads</div><div class="watch-providers">${offers.free.map(p => renderProvider(p)).join('')}</div></div>`;
-    if (offers.rent?.length > 0) sectionsHtml += `<div class="watch-section"><div class="watch-section-title">Rent</div><div class="watch-providers">${offers.rent.map(p => renderProvider(p, true)).join('')}</div></div>`;
-    if (offers.buy?.length > 0) sectionsHtml += `<div class="watch-section"><div class="watch-section-title">Buy</div><div class="watch-providers">${offers.buy.map(p => renderProvider(p, true)).join('')}</div></div>`;
-
-    if (!hasAnyOffers) {
-        sectionsHtml = `<div class="watch-not-found"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></svg><h3>No streaming options available</h3><p>This title may not be available for streaming in your region</p></div>`;
+    if (!allOffers[resolvedCountry]) {
+        const firstDefault = defaults.find(c => {
+            const rc = countryAliases[c] || c;
+            return allOffers[rc];
+        });
+        currentWatchCountry = firstDefault || available[0] || 'bd';
     }
 
     const typeLabel = data.type === 'show' ? 'TV Series' : 'Movie';
-    watchView.innerHTML = `<div class="watch-header"><div class="watch-title">${data.title || 'Unknown'}</div><div class="watch-subtitle">${data.year ? data.year + ' • ' : ''}${typeLabel}</div></div>${sectionsHtml}`;
+    const ratingHtml = data.rating ? `<span class="watch-rating" title="Rating">${data.rating}/100</span>` : '';
+    const genresHtml = data.genres?.length ? `<span class="watch-genres">${data.genres.join(', ')}</span>` : '';
+
+    let headerHtml = `<div class="watch-header">
+        <div class="watch-title">${data.title || 'Unknown'} ${ratingHtml}</div>
+        <div class="watch-subtitle">${data.year ? data.year + ' • ' : ''}${typeLabel}${genresHtml ? ' • ' + genresHtml : ''}</div>
+    </div>`;
+
+    if (available.length === 0) {
+        watchView.innerHTML = headerHtml + `<div class="watch-not-found"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></svg><h3>Not available on any streaming service</h3><p>This title is not currently available for streaming, rent, or purchase</p></div>`;
+        return;
+    }
+
+    const tabCountries = defaults.filter(c => {
+        const rc = countryAliases[c] || c;
+        return available.includes(rc) || c === 'bd' && available.includes('in');
+    });
+    const defaultResolved = defaults.map(c => countryAliases[c] || c);
+    const otherCountries = available.filter(c => !defaultResolved.includes(c)).sort();
+
+    let countryTabsHtml = '<div class="watch-country-selector">';
+    countryTabsHtml += '<div class="watch-country-tabs">';
+    tabCountries.forEach(c => {
+        const name = countryNames[c] || c.toUpperCase();
+        const active = c === currentWatchCountry ? ' active' : '';
+        countryTabsHtml += `<button class="watch-country-tab${active}" onclick="switchWatchCountry('${c}')" title="${name}">${name}</button>`;
+    });
+    countryTabsHtml += '</div>';
+
+    if (otherCountries.length > 0) {
+        countryTabsHtml += `<select class="watch-country-select" onchange="switchWatchCountry(this.value)">`;
+        countryTabsHtml += `<option value="">More countries (${otherCountries.length})</option>`;
+        otherCountries.forEach(c => {
+            const name = countryNames[c] || c.toUpperCase();
+            const sel = c === currentWatchCountry ? ' selected' : '';
+            countryTabsHtml += `<option value="${c}"${sel}>${name}</option>`;
+        });
+        countryTabsHtml += '</select>';
+    }
+    countryTabsHtml += '</div>';
+
+    const displayCountry = countryAliases[currentWatchCountry] || currentWatchCountry;
+    const offersHtml = renderCountryOffers(allOffers[displayCountry], currentWatchCountry);
+
+    watchView.innerHTML = headerHtml + countryTabsHtml + `<div id="watchCountryContent">${offersHtml}</div>`;
+}
+
+function switchWatchCountry(country) {
+    if (!country || !currentWatchData) return;
+    currentWatchCountry = country;
+    renderWatchInfo(currentWatchData);
+}
+
+function renderCountryOffers(offers, countryCode) {
+    if (!offers) {
+        return `<div class="watch-not-found"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></svg><h3>Not available in this region</h3><p>Try selecting a different country above</p></div>`;
+    }
+
+    let html = '';
+    if (offers.stream?.length > 0) html += `<div class="watch-section"><div class="watch-section-title">Stream</div><div class="watch-providers">${offers.stream.map(p => renderProvider(p)).join('')}</div></div>`;
+    if (offers.free?.length > 0) html += `<div class="watch-section"><div class="watch-section-title">Free with Ads</div><div class="watch-providers">${offers.free.map(p => renderProvider(p)).join('')}</div></div>`;
+    if (offers.rent?.length > 0) html += `<div class="watch-section"><div class="watch-section-title">Rent</div><div class="watch-providers">${offers.rent.map(p => renderProvider(p, true)).join('')}</div></div>`;
+    if (offers.buy?.length > 0) html += `<div class="watch-section"><div class="watch-section-title">Buy</div><div class="watch-providers">${offers.buy.map(p => renderProvider(p, true)).join('')}</div></div>`;
+
+    if (!html) {
+        html = `<div class="watch-not-found"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></svg><h3>Not available in this region</h3><p>Try selecting a different country above</p></div>`;
+    }
+    return html;
 }
 
 function renderProvider(p, showPrice = false) {
     const icon = p.icon ? `<img class="watch-provider-icon" src="${p.icon}" alt="${p.provider_name}" title="${p.provider_name}" onerror="this.style.display='none'">` : `<div class="watch-provider-icon" title="${p.provider_name}" style="display:flex;align-items:center;justify-content:center;font-size:20px;background:#222;">📺</div>`;
-    return `<div class="watch-provider" title="${p.provider_name}">${icon}</div>`;
+    const priceTag = (showPrice && p.price) ? `<span class="watch-price">${p.price}</span>` : '';
+    const qualityTag = p.quality ? `<span class="watch-quality">${p.quality}</span>` : '';
+    const inner = `<div class="watch-provider" title="${p.provider_name}">${icon}<span class="watch-provider-name">${p.provider_name}</span>${qualityTag}${priceTag}</div>`;
+    return p.link ? `<a href="${p.link}" target="_blank" rel="noopener" style="text-decoration:none;color:inherit;">${inner}</a>` : inner;
 }
 
 // Subtitles loading
@@ -1042,7 +1097,7 @@ async function loadSubtitles(filename) {
     subsView.innerHTML = `<div class="subs-loading"><div class="spinner"></div><p style="margin-top: 16px; color: #666;">Searching subtitles...</p></div>`;
 
     try {
-        const res = await fetch('subtitles.php?action=search&filename=' + encodeURIComponent(filename));
+        const res = await fetch('/api/subtitles?action=search&filename=' + encodeURIComponent(filename));
         const data = await res.json();
         subtitlesCache[filename] = data;
         renderSubtitles(data);
@@ -1191,7 +1246,7 @@ async function downloadSubtitle(fileId, fileName) {
 
     try {
         // Use proxy to download through server (avoids CORS)
-        const proxyUrl = 'subtitles.php?action=proxy&file_id=' + fileId;
+        const proxyUrl = '/api/subtitles?action=proxy&file_id=' + fileId;
 
         // Create invisible link and trigger download
         const a = document.createElement('a');
@@ -1847,5 +1902,4 @@ document.addEventListener('keydown', e => {
     if (e.key === '/' && !e.ctrlKey && document.activeElement.tagName !== 'INPUT') { e.preventDefault(); document.getElementById('searchInput').focus(); }
     if (e.key === 'Escape') closeModal();
 });
-
 
